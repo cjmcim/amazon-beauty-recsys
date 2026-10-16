@@ -1,0 +1,5 @@
+rank:
+  random_neg_ratio: 2
+  num_boost_round: 300
+spark:
+  shuffle_partitions: 100

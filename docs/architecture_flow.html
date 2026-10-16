@@ -1,0 +1,124 @@
+# Amazon Beauty 离线推荐系统 — 架构与数据流
+
+> 本图展示迁移后的标准工程结构：7 个 stage 串成流水线，每个 stage 是纯函数，
+> 产物通过 checkpoint 落盘（parquet/pkl/txt），支持断点续跑（--resume）。
+
+<html style="margin:0;padding:0;">
+<div style="background-color:transparent;box-sizing:border-box;">
+<div style="padding:8px 4px;box-sizing:border-box;">
+
+  <!-- 顶部：数据源 -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+    <div style="flex:1 1 220px;min-width:0;border-radius:12px;border:1px solid rgba(0,0,0,0.08);background:linear-gradient(135deg,rgba(158,172,234,0.12),rgba(158,172,234,0.25));padding:10px 12px;box-sizing:border-box;">
+      <div style="font-size:13px;font-weight:600;color:#1A1B1C;">原始数据（D:/Amazon_beauty_project/）</div>
+      <div style="font-size:12px;color:#4B5563;margin-top:4px;">Beauty_5.json（交互：134MB）<br/>meta_Beauty.json（商品元数据：312MB）</div>
+    </div>
+  </div>
+
+  <!-- 流水线：7 个 stage -->
+  <svg viewBox="0 0 960 470" width="100%" style="max-width:960px;display:block;margin:0 auto;height:auto;">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+        <path d="M0,0 L7,3.5 L0,7 Z" fill="#6B7280"/>
+      </marker>
+    </defs>
+
+    <!-- stage 1 EDA -->
+    <rect x="20" y="16" width="160" height="56" rx="12" fill="#9EACEA" opacity="0.16"/>
+    <text x="100" y="40" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">① EDA L0~L3</text>
+    <text x="100" y="58" text-anchor="middle" font-size="11" fill="#4B5563">数据质量/稀疏度/信号/侧信息</text>
+    <text x="100" y="90" text-anchor="middle" font-size="11" fill="#6B7280">产物：日志 + outputs/eda/plots/*.png</text>
+    <line x1="180" y1="44" x2="212" y2="44" stroke="#6B7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- stage 2 clean -->
+    <rect x="212" y="16" width="160" height="56" rx="12" fill="#A3D5E8" opacity="0.30"/>
+    <text x="292" y="40" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">② clean 清洗</text>
+    <text x="292" y="58" text-anchor="middle" font-size="11" fill="#4B5563">过滤/去重/价格/类目/关联</text>
+    <text x="292" y="90" text-anchor="middle" font-size="11" fill="#6B7280">产物：inter 宽表 + meta 商品表</text>
+    <line x1="372" y1="44" x2="404" y2="44" stroke="#6B7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- stage 3 split -->
+    <rect x="404" y="16" width="160" height="56" rx="12" fill="#A2DDAA" opacity="0.35"/>
+    <text x="484" y="40" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">③ split 时序切分</text>
+    <text x="484" y="58" text-anchor="middle" font-size="11" fill="#4B5563">timestamp 分位 80/10/10</text>
+    <text x="484" y="90" text-anchor="middle" font-size="11" fill="#6B7280">产物：train / val / test</text>
+    <line x1="564" y1="44" x2="596" y2="44" stroke="#6B7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- stage 4 feature -->
+    <rect x="596" y="16" width="160" height="56" rx="12" fill="#9BBBF4" opacity="0.25"/>
+    <text x="676" y="40" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">④ feature 特征</text>
+    <text x="676" y="58" text-anchor="middle" font-size="11" fill="#4B5563">物品静态 + 用户 PIT 快照</text>
+    <text x="676" y="90" text-anchor="middle" font-size="11" fill="#6B7280">产物：item_feat / user_ts_feat</text>
+
+    <!-- stage 5 recall -->
+    <rect x="596" y="130" width="160" height="56" rx="12" fill="#94D8C3" opacity="0.35"/>
+    <text x="676" y="154" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">⑤ recall 召回</text>
+    <text x="676" y="172" text-anchor="middle" font-size="11" fill="#4B5563">热门 Top50 + ItemCF 相似</text>
+    <text x="676" y="204" text-anchor="middle" font-size="11" fill="#6B7280">产物：3 份候选 + 编码器</text>
+    <line x1="676" y1="204" x2="676" y2="240" stroke="#6B7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- stage 6 rank -->
+    <rect x="596" y="240" width="160" height="56" rx="12" fill="#E1B98F" opacity="0.35"/>
+    <text x="676" y="264" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">⑥ rank 精排</text>
+    <text x="676" y="282" text-anchor="middle" font-size="11" fill="#4B5563">负采样 + PIT + LightGBM</text>
+    <text x="676" y="314" text-anchor="middle" font-size="11" fill="#6B7280">产物：lgb_rank_model.txt</text>
+    <line x1="676" y1="314" x2="676" y2="350" stroke="#6B7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+    <!-- stage 7 rerank -->
+    <rect x="596" y="350" width="160" height="56" rx="12" fill="#F4B393" opacity="0.4"/>
+    <text x="676" y="374" text-anchor="middle" font-size="14" font-weight="600" fill="#1A1B1C">⑦ rerank 重排</text>
+    <text x="676" y="392" text-anchor="middle" font-size="11" fill="#4B5563">多样性 + 热门惩罚</text>
+    <text x="676" y="424" text-anchor="middle" font-size="11" fill="#6B7280">产物：reorder_final_result.csv</text>
+
+    <!-- 左侧：工程化底座 -->
+    <rect x="20" y="130" width="440" height="276" rx="12" fill="none" stroke="rgba(0,0,0,0.10)" stroke-dasharray="4 3"/>
+    <text x="40" y="154" font-size="13" font-weight="600" fill="#1A1B1C">工程化底座（Jupyter 全局变量 → 显式数据流）</text>
+
+    <rect x="40" y="170" width="200" height="44" rx="10" fill="rgba(158,172,234,0.10)"/>
+    <text x="140" y="190" text-anchor="middle" font-size="12" fill="#1A1B1C">config/config.yaml</text>
+    <text x="140" y="206" text-anchor="middle" font-size="11" fill="#6B7280">全部路径/超参/开关，改配置不改代码</text>
+
+    <rect x="260" y="170" width="180" height="44" rx="10" fill="rgba(163,213,232,0.15)"/>
+    <text x="350" y="190" text-anchor="middle" font-size="12" fill="#1A1B1C">checkpoint 断点续跑</text>
+    <text x="350" y="206" text-anchor="middle" font-size="11" fill="#6B7280">parquet/pkl/txt 落盘 + --resume</text>
+
+    <rect x="40" y="228" width="200" height="44" rx="10" fill="rgba(162,221,170,0.15)"/>
+    <text x="140" y="248" text-anchor="middle" font-size="12" fill="#1A1B1C">日志统一</text>
+    <text x="140" y="264" text-anchor="middle" font-size="11" fill="#6B7280">print → outputs/logs/recsys.log</text>
+
+    <rect x="260" y="228" width="180" height="44" rx="10" fill="rgba(155,187,244,0.15)"/>
+    <text x="350" y="248" text-anchor="middle" font-size="12" fill="#1A1B1C">Spark 单例</text>
+    <text x="350" y="264" text-anchor="middle" font-size="11" fill="#6B7280">一次创建一次销毁，Windows 兼容</text>
+
+    <rect x="40" y="286" width="200" height="44" rx="10" fill="rgba(148,216,195,0.15)"/>
+    <text x="140" y="306" text-anchor="middle" font-size="12" fill="#1A1B1C">单元测试</text>
+    <text x="140" y="322" text-anchor="middle" font-size="11" fill="#6B7280">tests/：配置/指标/重排（无 Spark）</text>
+
+    <rect x="260" y="286" width="180" height="44" rx="10" fill="rgba(225,185,143,0.15)"/>
+    <text x="350" y="306" text-anchor="middle" font-size="12" fill="#1A1B1C">入口 CLI</text>
+    <text x="350" y="322" text-anchor="middle" font-size="11" fill="#6B7280">python main.py --steps xxx --resume</text>
+
+    <text x="40" y="360" font-size="11" fill="#6B7280">防泄露红线：热度/共现/相似度/用户快照全部只从 train 计算，val/test 仅评估；</text>
+    <text x="40" y="378" font-size="11" fill="#6B7280">PIT 快照 = 窗口函数 unboundedPreceding ~ -1 行，样本只看得到历史。</text>
+
+  </svg>
+
+  <!-- 底部：输出物 -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;">
+    <div style="flex:1 1 200px;min-width:0;border-radius:12px;border:1px solid rgba(0,0,0,0.08);background:linear-gradient(135deg,rgba(148,216,195,0.10),rgba(148,216,195,0.22));padding:10px 12px;box-sizing:border-box;">
+      <div style="font-size:12px;font-weight:600;color:#1A1B1C;">outputs/model/</div>
+      <div style="font-size:11px;color:#4B5563;margin-top:3px;">lgb_rank_model.txt · 特征重要性 csv</div>
+    </div>
+    <div style="flex:1 1 200px;min-width:0;border-radius:12px;border:1px solid rgba(0,0,0,0.08);background:linear-gradient(135deg,rgba(244,179,147,0.10),rgba(244,179,147,0.22));padding:10px 12px;box-sizing:border-box;">
+      <div style="font-size:12px;font-weight:600;color:#1A1B1C;">outputs/results/</div>
+      <div style="font-size:11px;color:#4B5563;margin-top:3px;">reorder_final_result.csv（每用户 Top20）</div>
+    </div>
+    <div style="flex:1 1 200px;min-width:0;border-radius:12px;border:1px solid rgba(0,0,0,0.08);background:linear-gradient(135deg,rgba(158,172,234,0.10),rgba(158,172,234,0.22));padding:10px 12px;box-sizing:border-box;">
+      <div style="font-size:12px;font-weight:600;color:#1A1B1C;">outputs/checkpoints/</div>
+      <div style="font-size:11px;color:#4B5563;margin-top:3px;">各 stage 中间产物，--resume 断点续跑</div>
+    </div>
+  </div>
+
+</div>
+</div>
+</html>

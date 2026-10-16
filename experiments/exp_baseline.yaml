@@ -1,0 +1,10 @@
+# ============================================================
+# exp_baseline: exp01 的对照实验（基线对照）
+# 与 exp01 完全相同的环境（加速项一致），唯一差异 = hard_neg_ratio
+# 这样 exp01 vs exp_baseline 的指标差异可干净归因于 hard_neg_ratio
+# ============================================================
+rank:
+  hard_neg_ratio: 3        # 保持基线值 3（与 exp01 的 5 形成唯一差异）
+  num_boost_round: 300     # 与 exp01 相同（保持环境一致）
+spark:
+  shuffle_partitions: 50   # 与 exp01 相同（保持环境一致）

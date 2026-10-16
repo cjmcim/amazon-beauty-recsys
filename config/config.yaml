@@ -1,0 +1,104 @@
+# ============================================================
+# Amazon Beauty 离线推荐系统 - 全局配置
+# 所有路径、超参数、开关都收敛到这里，代码里不再出现魔法数字
+# 相对路径基于「项目根目录」解析
+# ============================================================
+
+paths:
+  # 原始数据（换成你自己的实际路径）
+  inter_path: "D:/Amazon_beauty_project/Beauty_5.json"
+  # meta 用转换后的标准 JSON（原始 meta_Beauty.json 是 Python repr 格式，
+  # 需先用 tools/fix_meta_format.py 转换生成 meta_Beauty_std.json）
+  meta_path: "D:/Amazon_beauty_project/meta_Beauty_std.json"
+
+  # 输出目录（相对项目根）
+  outputs: "outputs"
+  checkpoints: "outputs/checkpoints"     # 各 stage 中间产物（parquet/pkl/json），支持断点续跑
+  logs: "outputs/logs"                   # 运行日志
+  model_dir: "outputs/model"             # 精排模型 + 召回编码器
+  results: "outputs/results"             # 最终结果 csv / 指标 json
+  eda_plots: "outputs/eda/plots"         # EDA 图表
+  eda_tables: "outputs/eda/tables"       # EDA 统计表（csv）
+
+# ------------------------------------------------------------
+# Spark 配置
+# ------------------------------------------------------------
+spark:
+  app_name: "AmazonBeauty_RecSys"
+  master: "local[*]"
+  driver_memory: "8g"
+  shuffle_partitions: 100
+  adaptive_enabled: true
+  # Windows 双保险：关闭本地文件权限校验（winutils 注入之外的第二道防线）
+  hadoop_local_fs_fix: true
+
+# ------------------------------------------------------------
+# 数据清洗
+# ------------------------------------------------------------
+data_clean:
+  dedup_user_item: true     # (user,item) 重复交互只保留 timestamp 最新一条
+  keep_missing_meta: true   # meta 缺失的商品交互是否保留（True 保留，特征置默认值）
+
+# ------------------------------------------------------------
+# 时序切分
+# ------------------------------------------------------------
+split:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1           # 三者之和必须 = 1（启动时校验）
+
+# ------------------------------------------------------------
+# 召回层
+# ------------------------------------------------------------
+recall:
+  itemcf_top_k: 100         # ItemCF 每用户保留条数
+  hot_top_k: 50             # 热门召回每用户保留条数
+  final_recall_k: 300       # 多路合并后每用户全局截断
+  min_cooc: 3               # ItemCF 共现次数下限
+  eval_k_list: [5, 10, 20, 50, 100, 200]   # 召回评估 Recall@K
+
+# ------------------------------------------------------------
+# 精排层
+# ------------------------------------------------------------
+rank:
+  hard_neg_ratio: 3         # 每个正样本配 hard 负样本数
+  random_neg_ratio: 1       # 每个正样本配随机负样本数
+  pos_rating_th: 4.0        # rating >= 4 视为正样本
+  eval_topk: [5, 10, 20]    # 精排/重排评估 K
+  num_boost_round: 800
+  early_stopping_rounds: 50
+  lgb:
+    objective: "binary"
+    metric: "auc"
+    boosting_type: "gbdt"
+    learning_rate: 0.05
+    num_leaves: 31
+    max_depth: 6
+    min_child_samples: 20
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 5
+    reg_alpha: 0.1
+    reg_lambda: 0.1
+    verbose: -1
+    n_jobs: -1
+
+# ------------------------------------------------------------
+# 重排层（规则后重排：多样性 + 热门惩罚）
+# ------------------------------------------------------------
+rerank:
+  top_n_output: 20          # 每个用户最终输出条数
+  hot_penalty_coeff: 0.08   # 热门惩罚系数，越大压制爆款越强
+  max_category_ratio: 0.35  # 单个类目在结果中的最大占比 (0~1)
+  eval_topk: [5, 10, 20]
+
+# ------------------------------------------------------------
+# 流水线编排
+# ------------------------------------------------------------
+pipeline:
+  seed: 42                  # 全局随机种子（采样、LightGBM 复现）
+  # 可用 steps（按依赖顺序）：
+  #   eda, clean, split, feature, recall, rank, rerank
+  steps: [eda, clean, split, feature, recall, rank, rerank]
+  checkpoint: true          # 是否落盘中间产物
+  resume: false             # true 时：已存在的 stage 产物直接加载，跳过重算
